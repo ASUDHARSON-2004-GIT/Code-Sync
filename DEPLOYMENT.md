@@ -24,7 +24,7 @@ We will use **Render.com** (it's free and easy) for the backend and **Vercel** f
 
 3.  **Deploy**
     *   Click **Create Web Service**. Render will start building.
-    *   Once done, copy your **Backend URL** (e.g., `https://code-sync-backend.onrender.com`).
+    *   Once done, copy your **Backend URL** (e.g., `https://code-sync-backend-x3t4.onrender.com`).
 
 ---
 
@@ -38,7 +38,7 @@ We will use **Render.com** (it's free and easy) for the backend and **Vercel** f
     *   **Root Directory**: Click "Edit" and select `frontend`.
     *   **Framework Preset**: Vite (should be auto-detected).
     *   **Environment Variables**:
-        *   `VITE_API_URL`: Paste your **Render Backend URL** here (e.g., `https://code-sync-backend.onrender.com`).
+        *   `VITE_API_URL`: Paste your **Render Backend URL** here (e.g., `https://code-sync-backend-x3t4.onrender.com`).
             *   *Note: Do NOT add a trailing slash `/` at the end.*
 
 3.  **Deploy**

@@ -171,7 +171,7 @@ const EditorPage = () => {
         };
         fetchRoomDetails();
 
-        const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const SOCKET_URL = import.meta.env.VITE_API_URL || 'https://code-sync-backend-x3t4.onrender.com';
         socketRef.current = io(SOCKET_URL, {
             reconnection: true,
             reconnectionAttempts: 5
