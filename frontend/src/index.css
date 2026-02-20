@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+    --color-background: #09090b;
+    --color-foreground: #ffffff;
+    --color-primary: #3b82f6;
+    --color-primary-foreground: #ffffff;
+}
+
+@layer base {
+    body {
+        @apply bg-background text-foreground;
+        margin: 0;
+        font-family: inherit;
+    }
+}
+
+.glass {
+    @apply bg-zinc-900/50 backdrop-blur-md border border-zinc-800;
+}
+
+.btn-primary {
+    @apply px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-all font-medium inline-flex items-center gap-2;
+}
+
+.btn-secondary {
+    @apply px-4 py-2 bg-zinc-800 text-white rounded-md hover:bg-zinc-700 transition-all font-medium inline-flex items-center gap-2;
+}
+
+.monaco-editor {
+    padding-top: 10px;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-zinc-800);
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-zinc-700);
+}
+
+/* Peer Cursors */
+.peer-cursor {
+    width: 2px !important;
+    background-color: #3b82f6;
+}
+
+.peer-cursor-label {
+    position: absolute;
+    top: -18px;
+    left: 0;
+    padding: 0 4px;
+    background-color: #3b82f6;
+    color: white;
+    font-size: 10px;
+    white-space: nowrap;
+    border-radius: 2px;
+    pointer-events: none;
+}
