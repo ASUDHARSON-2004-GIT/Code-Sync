@@ -18,6 +18,8 @@ const EditorPage = () => {
     const navigate = useNavigate();
     const socketRef = useRef(null);
     const editorRef = useRef(null);
+    const lastSocketCodeRef = useRef(""); // Track code from socket to avoid echo loops
+
 
     const [code, setCode] = useState("// Loading...");
     const [collaborators, setCollaborators] = useState([]);
@@ -141,8 +143,9 @@ const EditorPage = () => {
                 setActiveFileId(currentActiveId);
 
                 const activeF = roomFiles.find(f => f.id === currentActiveId);
-                setCode(activeF?.content || "");
                 setLanguage(activeF?.language || "javascript");
+                lastSocketCodeRef.current = activeF?.content || ""; // Sync ref on load
+                setCode(activeF?.content || "");
 
                 const userId = user._id || user.id || user.uid;
                 const isOwner = res.data.owner?._id === userId || res.data.owner === userId;
@@ -198,6 +201,16 @@ const EditorPage = () => {
 
         socketRef.current.on('active-file-update', (fileId) => {
             setActiveFileId(fileId);
+            // Sync content when someone else switches the file
+            setFiles(prevFiles => {
+                const targetFile = prevFiles.find(f => f.id === fileId);
+                if (targetFile) {
+                    lastSocketCodeRef.current = targetFile.content || "";
+                    setCode(targetFile.content || "");
+                    setLanguage(targetFile.language || "javascript");
+                }
+                return prevFiles;
+            });
         });
 
         socketRef.current.on('file-created', (newFile) => {
@@ -211,6 +224,7 @@ const EditorPage = () => {
         socketRef.current.on('code-update', ({ fileId, code: newCode }) => {
             setFiles(prev => prev.map(f => f.id === fileId ? { ...f, content: newCode } : f));
             if (activeFileId === fileId) {
+                lastSocketCodeRef.current = newCode; // Update ref to ignore this in onChange
                 setCode(newCode);
             }
         });
@@ -370,6 +384,9 @@ const EditorPage = () => {
     };
 
     const handleEditorChange = (value) => {
+        // Prevent infinite loop: Only emit if the change didn't come from the socket
+        if (value === lastSocketCodeRef.current) return;
+
         setCode(value);
         socketRef.current.emit('code-change', { roomId, fileId: activeFileId, code: value });
     };
@@ -470,7 +487,7 @@ const EditorPage = () => {
     );
 
     return (
-        <div className="h-screen flex flex-col bg-background">
+        <div className="h-screen flex flex-col bg-background notranslate" translate="no">
             {/* Top Navigation */}
             <header className="h-14 border-b border-zinc-800/80 flex items-center justify-between px-3 bg-zinc-950 shrink-0 gap-2">
                 {/* Left: Back + Logo + Language Picker */}
