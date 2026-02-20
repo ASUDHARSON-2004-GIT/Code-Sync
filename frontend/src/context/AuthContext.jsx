@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, googleProvider } from '../firebase/config';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, updateProfile } from 'firebase/auth';
-import axios from 'axios';
+import axiosInstance from '../api/axiosInstance';
 
 const AuthContext = createContext();
 
@@ -17,7 +17,7 @@ export const AuthProvider = ({ children }) => {
                 // Background sync - don't set global loading to true as it can unmount UI components
                 try {
                     console.log("Starting backend sync for:", firebaseUser.email);
-                    const response = await axios.post('/api/auth/firebase-sync', {
+                    const response = await axiosInstance.post('/api/auth/firebase-sync', {
                         email: firebaseUser.email,
                         name: firebaseUser.displayName,
                         photoURL: firebaseUser.photoURL,
@@ -42,7 +42,7 @@ export const AuthProvider = ({ children }) => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(userCredential.user, { displayName: name });
         // Manually trigger sync to ensure name is updated in DB
-        const response = await axios.post('/api/auth/firebase-sync', {
+        const response = await axiosInstance.post('/api/auth/firebase-sync', {
             email: userCredential.user.email,
             name: name,
             photoURL: userCredential.user.photoURL,

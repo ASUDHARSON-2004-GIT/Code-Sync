@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
-import axios from 'axios';
+import axiosInstance from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext';
 import {
     Code2, Users, Send, Share2,
@@ -75,7 +75,7 @@ const EditorPage = () => {
         try {
             console.log("Sending execution request:", { language, codeLength: code?.length });
             // Call backend directly to avoid any Vite proxy issues
-            const response = await axios.post("http://localhost:5000/api/execute", {
+            const response = await axiosInstance.post("/api/execute", {
                 language,
                 code
             });
@@ -107,10 +107,10 @@ const EditorPage = () => {
         try {
             setIsLoading(true);
             const userId = user._id || user.id || user.uid;
-            await axios.post('/api/room/join', { roomId, userId });
+            await axiosInstance.post('/api/room/join', { roomId, userId });
 
             // Refresh details to get updated list
-            const res = await axios.get(`/api/room/${roomId}`);
+            const res = await axiosInstance.get(`/api/room/${roomId}`);
             setRoomDetails(res.data);
             setIsMember(true);
             setRole('editor');
@@ -132,7 +132,7 @@ const EditorPage = () => {
         const fetchRoomDetails = async () => {
             try {
                 // Fetch room details first WITHOUT auto-joining
-                const res = await axios.get(`/api/room/${roomId}`);
+                const res = await axiosInstance.get(`/api/room/${roomId}`);
                 setRoomDetails(res.data);
                 const roomFiles = res.data.files || [];
                 setFiles(roomFiles);
@@ -326,7 +326,7 @@ const EditorPage = () => {
                 else fileLang = 'plaintext';
             }
 
-            const res = await axios.post(`/api/room/${roomId}/files`, { name, type, parentId, language: fileLang });
+            const res = await axiosInstance.post(`/api/room/${roomId}/files`, { name, type, parentId, language: fileLang });
             setFiles(res.data.files);
 
             const createdFile = res.data.files.find(f => f.name === name && f.parentId === parentId);
@@ -343,7 +343,7 @@ const EditorPage = () => {
     const deleteFile = async (fileId) => {
         if (!window.confirm("Are you sure you want to delete this?")) return;
         try {
-            const res = await axios.delete(`/api/room/${roomId}/files/${fileId}`);
+            const res = await axiosInstance.delete(`/api/room/${roomId}/files/${fileId}`);
             setFiles(res.data.files);
             socketRef.current?.emit('file-delete', { roomId, fileId });
 

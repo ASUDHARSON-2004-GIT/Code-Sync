@@ -4,7 +4,7 @@ import {
     Plus, Search, Folder, Clock, MoreVertical, LogOut, Code2,
     LayoutDashboard, Settings, User, Users, Zap, Trash2, X, ChevronRight, Hash
 } from 'lucide-react';
-import axios from 'axios';
+import axiosInstance from '../api/axiosInstance';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -47,7 +47,7 @@ const Dashboard = () => {
         try {
             const userId = user.id || user._id || user.uid;
             if (!userId) return;
-            const res = await axios.get(`/api/room/user/${userId}`);
+            const res = await axiosInstance.get(`/api/room/user/${userId}`);
             setRooms(res.data);
         } catch (err) {
             console.error("Error fetching rooms", err);
@@ -60,7 +60,7 @@ const Dashboard = () => {
         e.preventDefault();
         const userId = user._id || user.id || user.uid;
         try {
-            const res = await axios.post('/api/room/create', {
+            const res = await axiosInstance.post('/api/room/create', {
                 name: newRoomName,
                 userId: userId
             });
@@ -74,7 +74,7 @@ const Dashboard = () => {
         e.stopPropagation();
         setOpenMenuId(null);
         try {
-            await axios.delete(`/api/room/${roomId}`);
+            await axiosInstance.delete(`/api/room/${roomId}`);
             setRooms(prev => prev.filter(r => r.roomId !== roomId));
         } catch (err) {
             console.error("Error deleting room", err);
