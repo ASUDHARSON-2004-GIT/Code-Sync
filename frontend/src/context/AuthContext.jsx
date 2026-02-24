@@ -14,20 +14,22 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             if (firebaseUser) {
-                // Background sync - don't set global loading to true as it can unmount UI components
+                // Optimistically set user immediately to speed up UI transition
+                setUser(prev => prev || firebaseUser);
+
                 try {
-                    console.log("Starting backend sync for:", firebaseUser.email);
                     const response = await axiosInstance.post('/api/auth/firebase-sync', {
                         email: firebaseUser.email,
                         name: firebaseUser.displayName,
                         photoURL: firebaseUser.photoURL,
                         uid: firebaseUser.uid
                     });
-                    console.log("Backend sync successful:", response.data.user);
+                    // Merge backend details (token, etc.) once ready
                     setUser({ ...firebaseUser, ...response.data.user, token: response.data.token });
                 } catch (err) {
-                    console.error("Auth Sync Error Details:", err.response?.data || err.message);
-                    setUser(firebaseUser);
+                    console.error("Auth Sync Error:", err.message);
+                    // Fallback to basic firebase user if backend is down
+                    if (!user) setUser(firebaseUser);
                 }
             } else {
                 setUser(null);

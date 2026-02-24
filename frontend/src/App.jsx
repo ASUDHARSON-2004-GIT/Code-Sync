@@ -7,6 +7,8 @@ import EditorPage from './pages/EditorPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 
+import { Toaster } from 'react-hot-toast';
+
 const ProtectedRoute = ({ children }) => {
     const { user, loading } = useAuth();
     const location = useLocation();
@@ -21,6 +23,17 @@ function App() {
         <Router>
             <AuthProvider>
                 <div className="min-h-screen bg-background text-foreground font-sans">
+                    <Toaster
+                        position="top-right"
+                        toastOptions={{
+                            duration: 4000,
+                            style: {
+                                background: '#18181b',
+                                color: '#fff',
+                                border: '1px solid #27272a',
+                            },
+                        }}
+                    />
                     <Routes>
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/login" element={<LoginPage />} />

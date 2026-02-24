@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { Code2, Mail, Lock, User, Loader2 } from 'lucide-react';
+import { Code2, Mail, Lock, User, Loader2, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { toast } from 'react-hot-toast';
+import { getFirebaseErrorMessage } from '../utils/firebaseErrors';
 
 const RegisterPage = () => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [isRegistering, setIsRegistering] = useState(false);
     const { signup, loginWithGoogle, user, loading } = useAuth();
     const navigate = useNavigate();
@@ -23,23 +25,28 @@ const RegisterPage = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError('');
         setIsRegistering(true);
         try {
             await signup(email, password, name);
+            toast.success('Account created successfully!');
         } catch (err) {
             setIsRegistering(false);
-            setError(err.response?.data?.message || err.message || 'Failed to create an account.');
+            const message = getFirebaseErrorMessage(err);
+            toast.error(message);
         }
     };
     const handleGoogleLogin = async () => {
-        setError('');
         setIsRegistering(true);
         try {
             await loginWithGoogle();
+            toast.success('Successfully signed in with Google!');
         } catch (err) {
             setIsRegistering(false);
-            setError(err.message || 'Failed to login with Google.');
+            const message = getFirebaseErrorMessage(err);
+            toast.error(message, {
+                duration: 6000,
+            });
+            console.error("Google Login Error:", err);
         }
     };
 
@@ -57,8 +64,6 @@ const RegisterPage = () => {
                     <h2 className="text-2xl font-bold">Create an account</h2>
                     <p className="text-zinc-500">Start collaborating today</p>
                 </div>
-
-                {error && <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg mb-6 text-sm">{error}</div>}
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
@@ -91,14 +96,23 @@ const RegisterPage = () => {
                         <label className="text-sm font-medium text-zinc-400 flex items-center gap-2">
                             <Lock size={16} /> Password
                         </label>
-                        <input
-                            type="password"
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary outline-none transition-all"
-                            placeholder="••••••••"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPassword ? "text" : "password"}
+                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary outline-none transition-all pr-11"
+                                placeholder="••••••••"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                        </div>
                     </div>
                     <button
                         type="submit"
