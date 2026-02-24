@@ -69,8 +69,16 @@ io.on('connection', (socket) => {
         }
 
         const roomData = rooms.get(roomId);
-        const existingUserIndex = roomData.users.findIndex(u => u.socketId === socket.id);
-        if (existingUserIndex === -1) {
+
+        // Find if user already exists in the room (by ID, not just socketID)
+        const userId = user.id || user._id || user.uid;
+        const existingUserIndex = roomData.users.findIndex(u => (u.id || u._id || u.uid) === userId);
+
+        if (existingUserIndex !== -1) {
+            // Update the existing session's socket ID (handle multi-tab/reconnect)
+            roomData.users[existingUserIndex].socketId = socket.id;
+        } else {
+            // Add new user session
             roomData.users.push({ ...user, socketId: socket.id });
         }
 
@@ -103,6 +111,10 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('role-update', ({ roomId, userId, role }) => {
+        io.to(roomId).emit('role-changed', { userId, role });
+    });
+
     socket.on('file-create', ({ roomId, file }) => {
         if (rooms.has(roomId)) {
             const roomData = rooms.get(roomId);
@@ -130,15 +142,23 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('language-change', ({ roomId, language }) => {
+    socket.on('language-change', async ({ roomId, fileId, language }) => {
         if (rooms.has(roomId)) {
-            rooms.get(roomId).language = language;
-            // Broadcast to everyone else in the room
-            socket.to(roomId).emit('language-update', language);
-            // Persist to DB so reloads restore the correct language
-            Room.findOneAndUpdate({ roomId }, { language }).catch(err =>
-                console.error("Language save error:", err)
-            );
+            const roomData = rooms.get(roomId);
+            const file = roomData.files.find(f => f.id === fileId);
+            if (file) {
+                file.language = language;
+                socket.to(roomId).emit('language-update', { fileId, language });
+
+                try {
+                    await Room.findOneAndUpdate(
+                        { roomId, 'files.id': fileId },
+                        { $set: { 'files.$.language': language } }
+                    );
+                } catch (err) {
+                    console.error("Language save error:", err);
+                }
+            }
         }
     });
 

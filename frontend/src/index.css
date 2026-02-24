@@ -50,21 +50,4 @@
     background: var(--color-zinc-700);
 }
 
-/* Peer Cursors */
-.peer-cursor {
-    width: 2px !important;
-    background-color: #3b82f6;
-}
-
-.peer-cursor-label {
-    position: absolute;
-    top: -18px;
-    left: 0;
-    padding: 0 4px;
-    background-color: #3b82f6;
-    color: white;
-    font-size: 10px;
-    white-space: nowrap;
-    border-radius: 2px;
-    pointer-events: none;
-}
+/* Peer Cursors details are handled dynamically in EditorPage.jsx */

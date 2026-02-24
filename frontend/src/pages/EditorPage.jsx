@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
@@ -11,6 +11,7 @@ import {
     File, Folder, FilePlus, FolderPlus, MoreVertical
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 
 const EditorPage = () => {
     const { roomId } = useParams();
@@ -38,6 +39,13 @@ const EditorPage = () => {
     const [roomDetails, setRoomDetails] = useState(null);
     const [files, setFiles] = useState([]);
     const [activeFileId, setActiveFileId] = useState(null);
+    const activeFileIdRef = useRef(null);
+    const [isSaved, setIsSaved] = useState(true);
+
+    useEffect(() => {
+        activeFileIdRef.current = activeFileId;
+    }, [activeFileId]);
+
     const chatWidth = useMotionValue(320);
     const messagesEndRef = useRef(null);
     const isResizing = useRef(false);
@@ -223,14 +231,37 @@ const EditorPage = () => {
 
         socketRef.current.on('code-update', ({ fileId, code: newCode }) => {
             setFiles(prev => prev.map(f => f.id === fileId ? { ...f, content: newCode } : f));
-            if (activeFileId === fileId) {
-                lastSocketCodeRef.current = newCode; // Update ref to ignore this in onChange
+
+            // USE REF HERE to ensure we always have current active context
+            if (activeFileIdRef.current === fileId) {
+                lastSocketCodeRef.current = newCode;
                 setCode(newCode);
+                setIsSaved(true);
             }
         });
 
         socketRef.current.on('user-list', (users) => {
             setCollaborators(users);
+        });
+
+        socketRef.current.on('role-changed', ({ userId, role: newRole }) => {
+            const currentUserId = user.id || user._id || user.uid;
+            if (currentUserId === userId) {
+                setRole(newRole);
+                toast.success(`Access updated to: ${newRole.toUpperCase()}`);
+            }
+            // Update roomDetails to refresh the collaborator list UI
+            setRoomDetails(prev => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    collaborators: prev.collaborators.map(c => {
+                        const cUser = c.user?._id || c.user?.id || c.user;
+                        if (cUser === userId) return { ...c, role: newRole };
+                        return c;
+                    })
+                };
+            });
         });
 
         socketRef.current.on('cursor-update', ({ id, cursor, user: remoteUser }) => {
@@ -242,15 +273,29 @@ const EditorPage = () => {
             if (!document.getElementById(`cursor-style-${id}`)) {
                 const style = document.createElement('style');
                 style.id = `cursor-style-${id}`;
-                style.innerHTML = `.peer-cursor-${id} { background-color: ${color}; width: 2px !important; }`;
+                style.innerHTML = `
+                    .peer-cursor-${id} { 
+                        border-left: 2px solid ${color} !important;
+                        margin-left: -1px;
+                    }
+                `;
                 document.head.appendChild(style);
             }
 
             const currentDecorations = editorRef.current.activeDecorations?.[id] || [];
+            // Use same start/end column for a thin line '|'
             const newDecorations = editorRef.current.deltaDecorations(currentDecorations, [
                 {
-                    range: { startLineNumber: cursor.lineNumber, startColumn: cursor.column, endLineNumber: cursor.lineNumber, endColumn: cursor.column + 1 },
-                    options: { className: `peer-cursor-${id}` }
+                    range: {
+                        startLineNumber: cursor.lineNumber,
+                        startColumn: cursor.column,
+                        endLineNumber: cursor.lineNumber,
+                        endColumn: Math.min(cursor.column + 1, editorRef.current.getModel()?.getLineMaxColumn(cursor.lineNumber) || cursor.column + 1)
+                    },
+                    options: {
+                        className: `peer-cursor-${id}`,
+                        stickiness: 1 // NeverGrowOnTyping
+                    }
                 }
             ]);
 
@@ -258,8 +303,11 @@ const EditorPage = () => {
             editorRef.current.activeDecorations[id] = newDecorations;
         });
 
-        socketRef.current.on('language-update', (newLang) => {
-            setLanguage(newLang);
+        socketRef.current.on('language-update', ({ fileId, language: newLang }) => {
+            setFiles(prev => prev.map(f => f.id === fileId ? { ...f, language: newLang } : f));
+            if (activeFileIdRef.current === fileId) {
+                setLanguage(newLang);
+            }
         });
 
         socketRef.current.on('new-message', (msg) => {
@@ -283,7 +331,7 @@ const EditorPage = () => {
             if (!isResizing.current) return;
             const newWidth = window.innerWidth - e.clientX;
             if (newWidth > 200 && newWidth < 600) {
-                // Set motion value directly — no React re-render, no spring animation
+                // Set motion value directly â€” no React re-render, no spring animation
                 chatWidth.set(newWidth);
             }
         };
@@ -302,6 +350,7 @@ const EditorPage = () => {
                 socketRef.current.off('connect');
                 socketRef.current.off('code-update');
                 socketRef.current.off('user-list');
+                socketRef.current.off('role-changed');
                 socketRef.current.off('language-update');
                 socketRef.current.off('cursor-update');
                 socketRef.current.off('user-left');
@@ -326,6 +375,32 @@ const EditorPage = () => {
             setCode(file.content || "");
             setLanguage(file.language || "javascript");
             socketRef.current?.emit('file-switch', { roomId, fileId });
+        }
+    };
+
+    const handleRoleChange = async (targetUserId, newRole) => {
+        try {
+            await axiosInstance.put(`/api/room/${roomId}/collab-role`, {
+                userId: targetUserId,
+                role: newRole
+            });
+            socketRef.current.emit('role-update', { roomId, userId: targetUserId, role: newRole });
+            toast.success(`Role updated to ${newRole}`);
+
+            setRoomDetails(prev => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    collaborators: prev.collaborators.map(c => {
+                        const cId = c.user?._id || c.user?.id || c.user;
+                        if (cId === targetUserId) return { ...c, role: newRole };
+                        return c;
+                    })
+                };
+            });
+        } catch (err) {
+            console.error("Role update error:", err);
+            toast.error("Failed to update role");
         }
     };
 
@@ -384,11 +459,28 @@ const EditorPage = () => {
     };
 
     const handleEditorChange = (value) => {
-        // Prevent infinite loop: Only emit if the change didn't come from the socket
-        if (value === lastSocketCodeRef.current) return;
+        if (value === undefined) return;
 
+        // Prevent infinite loop if update came from socket
+        if (value === lastSocketCodeRef.current) {
+            setIsSaved(true);
+            return;
+        }
+
+        setIsSaved(false);
         setCode(value);
-        socketRef.current.emit('code-change', { roomId, fileId: activeFileId, code: value });
+
+        // Update local files state as well for instant feedback
+        setFiles(prev => prev.map(f => f.id === activeFileId ? { ...f, content: value } : f));
+
+        socketRef.current?.emit('code-change', {
+            roomId,
+            fileId: activeFileId,
+            code: value
+        });
+
+        // Debounced/Visual confirmation of save
+        setTimeout(() => setIsSaved(true), 1000);
     };
 
     const handleSendMessage = (e) => {
@@ -518,6 +610,21 @@ const EditorPage = () => {
                             {currentLang.label}
                         </span>
                     </div>
+
+                    {/* Save Status Indicator */}
+                    <div className="flex items-center gap-2 ml-2 px-2 py-1 rounded-md bg-zinc-900/10 border border-zinc-800/30">
+                        {isSaved ? (
+                            <div className="flex items-center gap-1.5 text-[10px] text-green-500/70 font-medium">
+                                <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />
+                                <span>Sync Saved</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-1.5 text-[10px] text-yellow-500/70 font-medium">
+                                <Loader2 size={10} className="animate-spin" />
+                                <span>Syncing...</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Right: Collaborators + Actions */}
@@ -582,7 +689,7 @@ const EditorPage = () => {
             </header >
 
             <div className="flex-1 flex overflow-hidden">
-                {/* Left Sidebar - Active Room Stats */}
+                {/* Left Icon Rail */}
                 <div className="w-12 border-r border-zinc-900 flex flex-col items-center py-4 gap-4 bg-zinc-950">
                     <SidebarIcon
                         icon={<File size={20} />}
@@ -598,20 +705,22 @@ const EditorPage = () => {
                     />
                     <SidebarIcon
                         icon={<MessageSquare size={20} />}
-                        active={isChatOpen}
-                        onClick={() => setIsChatOpen(!isChatOpen)}
+                        active={activeSidePanel === 'chat'}
+                        onClick={() => setActiveSidePanel(activeSidePanel === 'chat' ? null : 'chat')}
                         title="Chat"
                     />
                 </div>
 
-                {/* Side Panel (Files or Users) */}
+                {/* Left Side Panel (Files, Users, or Chat) */}
                 <AnimatePresence mode='wait'>
                     {activeSidePanel && (
                         <motion.aside
+                            key={activeSidePanel}
                             initial={{ width: 0, opacity: 0 }}
-                            animate={{ width: 240, opacity: 1 }}
+                            animate={{ width: activeSidePanel === 'chat' ? 300 : 240, opacity: 1 }}
                             exit={{ width: 0, opacity: 0 }}
-                            className="border-r border-zinc-900 flex flex-col bg-zinc-950/30"
+                            transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
+                            className="border-r border-zinc-900 flex flex-col bg-zinc-950/30 shrink-0 overflow-hidden"
                         >
                             {activeSidePanel === 'files' ? (
                                 <>
@@ -637,13 +746,15 @@ const EditorPage = () => {
                                         />
                                     </div>
                                 </>
-                            ) : (
+                            ) : activeSidePanel === 'users' ? (
                                 <>
                                     <div className="p-4 border-b border-zinc-900 flex items-center justify-between">
-                                        <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Collaborators ({collaborators.length})</h3>
+                                        <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                                            Collaborators ({[...new Set(collaborators.map(c => c.id || c._id || c.uid))].length})
+                                        </h3>
                                     </div>
                                     <div className="flex-1 overflow-y-auto p-2">
-                                        {collaborators.map((collab) => (
+                                        {Array.from(new Map(collaborators.map(c => [c.id || c._id || c.uid, c])).values()).map((collab) => (
                                             <div key={collab.socketId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900 transition-colors cursor-default">
                                                 <div className="relative">
                                                     <img
@@ -655,13 +766,107 @@ const EditorPage = () => {
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-sm font-medium truncate">{collab.name}</p>
-                                                    <p className="text-[10px] text-zinc-500 uppercase tracking-tighter">Editor</p>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <p className="text-[10px] text-zinc-500 uppercase tracking-tighter">
+                                                            {roomDetails?.collaborators?.find(c => (c.user?._id || c.user?.id || c.user) === (collab.id || collab._id || collab.uid))?.role || 'Editor'}
+                                                        </p>
+                                                        {role === 'owner' && (collab.id || collab._id || collab.uid) !== (user.id || user._id || user.uid) && (
+                                                            <div className="flex gap-1">
+                                                                <button
+                                                                    onClick={() => handleRoleChange(collab.id || collab._id || collab.uid, 'editor')}
+                                                                    className={`text-[8px] px-1 rounded ${roomDetails?.collaborators?.find(c => (c.user?._id || c.user?.id || c.user) === (collab.id || collab._id || collab.uid))?.role === 'editor' ? 'bg-primary/20 text-primary' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'}`}
+                                                                >
+                                                                    ED
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleRoleChange(collab.id || collab._id || collab.uid, 'viewer')}
+                                                                    className={`text-[8px] px-1 rounded ${roomDetails?.collaborators?.find(c => (c.user?._id || c.user?.id || c.user) === (collab.id || collab._id || collab.uid))?.role === 'viewer' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'}`}
+                                                                >
+                                                                    VW
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 </>
-                            )}
+                            ) : activeSidePanel === 'chat' ? (
+                                /* ===== CHAT PANEL (left side, like file manager) ===== */
+                                <>
+                                    {/* Chat Header */}
+                                    <div className="p-4 border-b border-zinc-900 flex items-center justify-between bg-black/20 shrink-0">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                            <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Live Chat</h3>
+                                        </div>
+                                        <span className="text-[10px] text-zinc-600 font-medium">{messages.length} msgs</span>
+                                    </div>
+
+                                    {/* Messages */}
+                                    <div className="flex-1 overflow-y-auto p-3 space-y-4 custom-scrollbar min-h-0">
+                                        {messages.length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center text-zinc-600 gap-3 opacity-50 px-4 pt-10">
+                                                <div className="p-4 bg-zinc-900 rounded-full">
+                                                    <MessageSquare size={28} />
+                                                </div>
+                                                <p className="text-center text-xs leading-relaxed">No messages yet. Start a conversation!</p>
+                                            </div>
+                                        ) : (
+                                            messages.map((msg, idx) => {
+                                                const msgUserId = msg.user.id || msg.user._id || msg.user.uid;
+                                                const currentUserId = user.id || user._id || user.uid;
+                                                const isMe = msgUserId === currentUserId;
+                                                return (
+                                                    <div key={idx} className={`flex items-start gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                                                        <img
+                                                            src={msg.user.photoURL || `https://ui-avatars.com/api/?name=${msg.user.name}&background=random&color=fff`}
+                                                            alt=""
+                                                            className="w-6 h-6 rounded-full border border-zinc-800 flex-shrink-0 mt-0.5"
+                                                        />
+                                                        <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%]`}>
+                                                            <div className="flex items-center gap-1.5 mb-0.5 px-0.5">
+                                                                {!isMe && <span className="text-[10px] font-semibold text-zinc-400">{msg.user.name}</span>}
+                                                                <span className="text-[9px] text-zinc-600">
+                                                                    {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                                                                </span>
+                                                            </div>
+                                                            <div className={`px-3 py-2 rounded-2xl text-[12px] leading-relaxed shadow-md ${isMe
+                                                                ? 'bg-primary text-white rounded-tr-none'
+                                                                : 'bg-zinc-900 text-zinc-200 rounded-tl-none border border-zinc-800/80'
+                                                                }`}>
+                                                                {msg.message}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                        <div ref={messagesEndRef} />
+                                    </div>
+
+                                    {/* Input */}
+                                    <div className="p-3 border-t border-zinc-900 bg-black/20 shrink-0">
+                                        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-primary/50 transition-all placeholder:text-zinc-600 min-w-0"
+                                                placeholder="Message..."
+                                                value={messageInput}
+                                                onChange={(e) => setMessageInput(e.target.value)}
+                                            />
+                                            <button
+                                                type="submit"
+                                                disabled={!messageInput.trim()}
+                                                className="p-2 bg-primary text-white rounded-xl hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                                            >
+                                                <Send size={14} />
+                                            </button>
+                                        </form>
+                                    </div>
+                                </>
+                            ) : null}
                         </motion.aside>
                     )}
                 </AnimatePresence>
@@ -756,187 +961,82 @@ const EditorPage = () => {
                     )}
                 </div>
 
-                {/* Chat Panel */}
+                {/* Share Modal */}
                 <AnimatePresence>
-                    {isChatOpen && (
-                        <motion.aside
-                            ref={chatPanelRef}
-                            initial={{ opacity: 0, width: 0 }}
-                            animate={{ opacity: 1, width: 320 }}
-                            exit={{ opacity: 0, width: 0 }}
-                            transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
-                            style={{ flexShrink: 0, overflow: 'hidden' }}
-                            className="h-full flex flex-col relative border-l border-zinc-900 bg-zinc-950 shadow-2xl"
-                        >
-                            {/* Inner container at full fixed width so content never squishes */}
-                            <div className="flex flex-col h-full" style={{ width: 320, minWidth: 200 }}>
-                                {/* Resize Handle */}
-                                <div
-                                    onMouseDown={(e) => {
-                                        e.preventDefault();
-                                        isResizing.current = true;
-                                        document.body.style.cursor = 'col-resize';
-                                        document.body.style.userSelect = 'none';
-                                    }}
-                                    className="w-1.5 hover:bg-primary/60 cursor-col-resize transition-colors absolute left-0 top-0 bottom-0 z-20"
-                                />
-
-                                {/* Chat Header */}
-                                <div className="p-4 border-b border-zinc-900 flex items-center justify-between bg-black/20 backdrop-blur-md shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                                        <h3 className="text-sm font-bold tracking-wide">Live Chat</h3>
+                    {isShareModalOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl space-y-8"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <h2 className="text-2xl font-bold tracking-tight">Invite others</h2>
+                                        <p className="text-sm text-zinc-500">Collaborate with your team in real-time.</p>
                                     </div>
-                                    <button onClick={() => setIsChatOpen(false)} className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors">
-                                        <X size={16} className="text-zinc-500 hover:text-white" />
+                                    <button
+                                        onClick={() => setIsShareModalOpen(false)}
+                                        className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-500 hover:text-white"
+                                    >
+                                        <X size={20} />
                                     </button>
                                 </div>
 
-                                {/* Messages */}
-                                <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar min-h-0">
-                                    {messages.length === 0 ? (
-                                        <div className="h-full flex flex-col items-center justify-center text-zinc-600 gap-3 opacity-50 px-6">
-                                            <div className="p-4 bg-zinc-900 rounded-full">
-                                                <MessageSquare size={32} />
+                                <div className="space-y-6">
+                                    <div className="space-y-3">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest px-1">Room Link</label>
+                                        <div className="flex gap-2">
+                                            <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300 truncate font-mono">
+                                                {window.location.origin}/room/{roomId}
                                             </div>
-                                            <p className="text-center text-xs leading-relaxed">No messages yet. Start a conversation with your team!</p>
+                                            <button
+                                                onClick={handleCopyLink}
+                                                className="px-6 bg-primary text-white rounded-xl font-bold text-sm hover:opacity-90 transition-all shadow-lg shadow-primary/20 whitespace-nowrap"
+                                            >
+                                                {copied ? 'Copied!' : 'Copy Link'}
+                                            </button>
                                         </div>
-                                    ) : (
-                                        messages.map((msg, idx) => {
-                                            const msgUserId = msg.user.id || msg.user._id || msg.user.uid;
-                                            const currentUserId = user.id || user._id || user.uid;
-                                            const isMe = msgUserId === currentUserId;
+                                    </div>
 
-                                            return (
-                                                <div key={idx} className={`flex items-start gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                                                    <img
-                                                        src={msg.user.photoURL || `https://ui-avatars.com/api/?name=${msg.user.name}&background=random&color=fff`}
-                                                        alt=""
-                                                        className="w-7 h-7 rounded-full border border-zinc-800 flex-shrink-0 mt-0.5"
-                                                    />
-                                                    <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[85%]`}>
-                                                        <div className="flex items-center gap-2 mb-0.5 px-0.5">
-                                                            {!isMe && <span className="text-[10px] font-semibold text-zinc-400">{msg.user.name}</span>}
-                                                            <span className="text-[9px] text-zinc-500 font-medium">
-                                                                {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
-                                                            </span>
-                                                        </div>
-                                                        <div
-                                                            className={`px-3.5 py-2 rounded-2xl text-[13px] leading-relaxed transition-all shadow-md ${isMe
-                                                                ? 'bg-primary text-white rounded-tr-none'
-                                                                : 'bg-zinc-900 text-zinc-200 rounded-tl-none border border-zinc-800/80'
-                                                                }`}
-                                                        >
-                                                            {msg.message}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                    <div ref={messagesEndRef} />
+                                    <div className="space-y-3">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest px-1">Room ID</label>
+                                        <div className="flex gap-2">
+                                            <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300 font-mono">
+                                                {roomId}
+                                            </div>
+                                            <button
+                                                onClick={handleCopyRoomId}
+                                                className="px-6 bg-zinc-800 text-white rounded-xl font-bold text-sm hover:bg-zinc-700 transition-all whitespace-nowrap"
+                                            >
+                                                {copiedId ? 'Copied!' : 'Copy ID'}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Input */}
-                                <div className="p-4 border-t border-zinc-900 bg-black/20 backdrop-blur-md shrink-0">
-                                    <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                                        <input
-                                            type="text"
-                                            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-1 focus:ring-primary/50 transition-all placeholder:text-zinc-600"
-                                            placeholder="Type a message..."
-                                            value={messageInput}
-                                            onChange={(e) => setMessageInput(e.target.value)}
-                                        />
-                                        <button
-                                            type="submit"
-                                            disabled={!messageInput.trim()}
-                                            className="p-2.5 bg-primary text-white rounded-xl hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                                        >
-                                            <Send size={16} />
-                                        </button>
-                                    </form>
+                                <div className="pt-4 border-t border-zinc-800/50 flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                        <Shield size={20} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-xs font-semibold text-zinc-300">Fast, Real-time Sync</p>
+                                        <p className="text-[10px] text-zinc-500 italic">Up to 50 active collaborators supported.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setIsShareModalOpen(false)}
+                                        className="text-xs font-bold text-primary hover:underline px-2"
+                                    >
+                                        Done
+                                    </button>
                                 </div>
-                            </div>
-                        </motion.aside>
+                            </motion.div>
+                        </div>
                     )}
                 </AnimatePresence>
             </div>
-
-            {/* Share Modal */}
-            <AnimatePresence>
-                {isShareModalOpen && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl space-y-8"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div className="space-y-1">
-                                    <h2 className="text-2xl font-bold tracking-tight">Invite others</h2>
-                                    <p className="text-sm text-zinc-500">Collaborate with your team in real-time.</p>
-                                </div>
-                                <button
-                                    onClick={() => setIsShareModalOpen(false)}
-                                    className="p-2 hover:bg-zinc-800 rounded-xl transition-colors text-zinc-500 hover:text-white"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-6">
-                                <div className="space-y-3">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest px-1">Room Link</label>
-                                    <div className="flex gap-2">
-                                        <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300 truncate font-mono">
-                                            {window.location.origin}/room/{roomId}
-                                        </div>
-                                        <button
-                                            onClick={handleCopyLink}
-                                            className="px-6 bg-primary text-white rounded-xl font-bold text-sm hover:opacity-90 transition-all shadow-lg shadow-primary/20 whitespace-nowrap"
-                                        >
-                                            {copied ? 'Copied!' : 'Copy Link'}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-3">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest px-1">Room ID</label>
-                                    <div className="flex gap-2">
-                                        <div className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300 font-mono">
-                                            {roomId}
-                                        </div>
-                                        <button
-                                            onClick={handleCopyRoomId}
-                                            className="px-6 bg-zinc-800 text-white rounded-xl font-bold text-sm hover:bg-zinc-700 transition-all whitespace-nowrap"
-                                        >
-                                            {copiedId ? 'Copied!' : 'Copy ID'}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="pt-4 border-t border-zinc-800/50 flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                                    <Shield size={20} />
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-xs font-semibold text-zinc-300">Fast, Real-time Sync</p>
-                                    <p className="text-[10px] text-zinc-500 italic">Up to 50 active collaborators supported.</p>
-                                </div>
-                                <button
-                                    onClick={() => setIsShareModalOpen(false)}
-                                    className="text-xs font-bold text-primary hover:underline px-2"
-                                >
-                                    Done
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-        </div >
+        </div>
     );
 };
 
@@ -1047,6 +1147,7 @@ const FileTreeItem = ({ file, allFiles, activeFileId, onFileClick, onDelete, onC
 const SidebarIcon = ({ icon, active, onClick, title }) => (
     <button
         onClick={onClick}
+        title={title}
         className={`p-2 rounded-lg transition-all ${active ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white hover:bg-zinc-900'}`}
     >
         {icon}

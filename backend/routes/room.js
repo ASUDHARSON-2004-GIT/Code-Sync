@@ -59,7 +59,9 @@ router.get('/user/:userId', async (req, res) => {
                 { owner: req.params.userId },
                 { 'collaborators.user': req.params.userId }
             ]
-        }).sort({ updatedAt: -1, createdAt: -1 });
+        })
+            .populate('owner collaborators.user')
+            .sort({ updatedAt: -1, createdAt: -1 });
         res.json(rooms);
     } catch (err) {
         res.status(500).json({ message: err.message });
@@ -135,6 +137,25 @@ router.delete('/:roomId/files/:fileId', async (req, res) => {
 
         await room.save();
         res.json(room);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Update Collaborator Role
+router.put('/:roomId/collab-role', async (req, res) => {
+    const { userId, role } = req.body;
+    try {
+        const room = await Room.findOne({ roomId: req.params.roomId });
+        if (!room) return res.status(404).json({ message: "Room not found" });
+
+        const collabIndex = room.collaborators.findIndex(c => c.user.toString() === userId);
+        if (collabIndex !== -1) {
+            room.collaborators[collabIndex].role = role;
+            await room.save();
+            return res.json({ message: "Role updated successfully", room });
+        }
+        res.status(404).json({ message: "Collaborator not found" });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
