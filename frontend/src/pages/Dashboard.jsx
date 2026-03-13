@@ -25,7 +25,9 @@ const Dashboard = () => {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
     const [newRoomName, setNewRoomName] = useState('');
+    const [newRoomPassword, setNewRoomPassword] = useState('');
     const [joinRoomId, setJoinRoomId] = useState('');
+    const [joinRoomPassword, setJoinRoomPassword] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [openMenuId, setOpenMenuId] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -56,10 +58,15 @@ const Dashboard = () => {
         setIsJoining(true);
         try {
             const userId = user.id || user._id || user.uid;
-            await axiosInstance.post('/api/room/join', { roomId, userId });
+            await axiosInstance.post('/api/room/join', {
+                roomId,
+                userId,
+                password: joinRoomPassword.trim() || undefined
+            });
             toast.success("Joined room successfully!");
             setIsJoinModalOpen(false);
             setJoinRoomId('');
+            setJoinRoomPassword('');
             navigate(`/room/${roomId}`);
         } catch (err) {
             const message = err.response?.data?.message || "Room not found or invalid code.";
@@ -96,10 +103,12 @@ const Dashboard = () => {
             const res = await axiosInstance.post('/api/room/create', {
                 name: newRoomName.trim(),
                 userId,
+                password: newRoomPassword.trim() || undefined,
             });
             toast.success("Room created!");
             setIsCreateModalOpen(false);
             setNewRoomName('');
+            setNewRoomPassword('');
             navigate(`/room/${res.data.roomId}`);
         } catch (err) {
             toast.error("Failed to create room.");
@@ -276,8 +285,8 @@ const Dashboard = () => {
 
             {/* Modals */}
             <AnimatePresence>
-                {isCreateModalOpen && <CreateRoomModal isCreating={isCreating} onCreate={handleCreateRoom} onClose={() => { setIsCreateModalOpen(false); setNewRoomName(''); }} newRoomName={newRoomName} setNewRoomName={setNewRoomName} />}
-                {isJoinModalOpen && <JoinRoomModal isJoining={isJoining} onJoin={handleJoinRoom} onClose={() => { setIsJoinModalOpen(false); setJoinRoomId(''); }} joinRoomId={joinRoomId} setJoinRoomId={setJoinRoomId} />}
+                {isCreateModalOpen && <CreateRoomModal isCreating={isCreating} onCreate={handleCreateRoom} onClose={() => { setIsCreateModalOpen(false); setNewRoomName(''); setNewRoomPassword(''); }} newRoomName={newRoomName} setNewRoomName={setNewRoomName} newRoomPassword={newRoomPassword} setNewRoomPassword={setNewRoomPassword} />}
+                {isJoinModalOpen && <JoinRoomModal isJoining={isJoining} onJoin={handleJoinRoom} onClose={() => { setIsJoinModalOpen(false); setJoinRoomId(''); setJoinRoomPassword(''); }} joinRoomId={joinRoomId} setJoinRoomId={setJoinRoomId} joinRoomPassword={joinRoomPassword} setJoinRoomPassword={setJoinRoomPassword} />}
             </AnimatePresence>
         </div>
     );
@@ -599,7 +608,7 @@ const RoomCardLarge = ({ room, formatDate, onClick }) => (
     </div>
 );
 
-const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoomName }) => (
+const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoomName, newRoomPassword, setNewRoomPassword }) => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
         <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 16 }}
@@ -635,6 +644,16 @@ const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoo
                         autoFocus
                     />
                 </div>
+                <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Password (Optional)</label>
+                    <input
+                        type="password"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all text-white placeholder:text-zinc-700"
+                        placeholder="Leave blank for public room"
+                        value={newRoomPassword}
+                        onChange={(e) => setNewRoomPassword(e.target.value)}
+                    />
+                </div>
                 <div className="flex gap-2.5 pt-1">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 text-zinc-500 hover:text-white text-xs font-medium transition-all rounded-xl hover:bg-zinc-800">
                         Cancel
@@ -651,7 +670,7 @@ const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoo
     </div>
 );
 
-const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId }) => (
+const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId, joinRoomPassword, setJoinRoomPassword }) => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
         <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 16 }}
@@ -689,6 +708,16 @@ const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId }
                     <p className="text-[10px] text-zinc-600 pl-1">
                         Accepts a direct Room ID or a full invite URL like <span className="text-zinc-500 font-mono">/room/abc123</span>
                     </p>
+                </div>
+                <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Password (If Protected)</label>
+                    <input
+                        type="password"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:border-zinc-600 focus:ring-2 focus:ring-white/5 outline-none transition-all text-white placeholder:text-zinc-700"
+                        placeholder="Leave blank if public"
+                        value={joinRoomPassword}
+                        onChange={(e) => setJoinRoomPassword(e.target.value)}
+                    />
                 </div>
                 <div className="flex gap-2.5 pt-1">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 text-zinc-500 hover:text-white text-xs font-medium transition-all rounded-xl hover:bg-zinc-800">

@@ -2,16 +2,26 @@ const express = require('express');
 const router = express.Router();
 const Room = require('../models/Room');
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
+const User = require('../models/User');
+
 
 // Create Room
 router.post('/create', async (req, res) => {
     try {
-        const { name, userId } = req.body;
+        const { name, userId, password } = req.body;
         const roomId = uuidv4().substring(0, 8);
         const defaultFileId = uuidv4();
+
+        let savedPassword = null;
+        if (password) {
+            savedPassword = password;
+        }
+
         const newRoom = new Room({
             roomId,
             name,
+            password: savedPassword,
             owner: userId,
             collaborators: [{ user: userId, role: 'owner' }],
             files: [{
@@ -33,7 +43,7 @@ router.post('/create', async (req, res) => {
 
 // Join Room (Add user as collaborator)
 router.post('/join', async (req, res) => {
-    const { roomId, userId } = req.body;
+    const { roomId, userId, password } = req.body;
     try {
         const room = await Room.findOne({ roomId });
         if (!room) return res.status(404).json({ message: "Room not found" });
@@ -42,6 +52,23 @@ router.post('/join', async (req, res) => {
         const isCollaborator = room.collaborators.some(c => c.user.toString() === userId);
 
         if (!isOwner && !isCollaborator) {
+            if (room.password) {
+                if (!password) {
+                    return res.status(401).json({ message: "Password required to join this room." });
+                }
+                
+                let isMatch = false;
+                if (room.password.startsWith('$2a$') || room.password.startsWith('$2b$')) {
+                    isMatch = await bcrypt.compare(password, room.password).catch(() => false);
+                } else {
+                    isMatch = (room.password === password);
+                }
+
+                if (!isMatch) {
+                    return res.status(401).json({ message: "Invalid password." });
+                }
+            }
+
             room.collaborators.push({ user: userId, role: 'editor' });
             await room.save();
         }
@@ -73,7 +100,20 @@ router.get('/:roomId', async (req, res) => {
     try {
         const room = await Room.findOne({ roomId: req.params.roomId }).populate('owner collaborators.user');
         if (!room) return res.status(404).json({ message: "Room not found" });
-        res.json(room);
+        
+        // Convert to object to safely add property without affecting DB
+        const roomObj = room.toObject();
+        roomObj.hasPassword = !!room.password;
+        
+        // Return actual password only to the owner
+        if (req.query.userId && room.owner._id.toString() === req.query.userId) {
+            // keep roomObj.password
+        } else {
+            // Remove actual password from response for security
+            delete roomObj.password;
+        }
+
+        res.json(roomObj);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -156,6 +196,72 @@ router.put('/:roomId/collab-role', async (req, res) => {
             return res.json({ message: "Role updated successfully", room });
         }
         res.status(404).json({ message: "Collaborator not found" });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Add Collaborator (Invite)
+router.post('/:roomId/collaborators', async (req, res) => {
+    try {
+        const { email, role } = req.body;
+        const userToInvite = await User.findOne({ email });
+        if (!userToInvite) return res.status(404).json({ message: "User not found with this email" });
+
+        const room = await Room.findOne({ roomId: req.params.roomId });
+        if (!room) return res.status(404).json({ message: "Room not found" });
+
+        const exists = room.collaborators.some(c => c.user.toString() === userToInvite._id.toString());
+        if (exists) return res.status(400).json({ message: "User is already a collaborator" });
+
+        room.collaborators.push({ user: userToInvite._id, role: role || 'editor' });
+        await room.save();
+        
+        const updatedRoom = await Room.findOne({ roomId: req.params.roomId }).populate('owner collaborators.user');
+        res.json(updatedRoom);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Remove Collaborator
+router.delete('/:roomId/collaborators/:userId', async (req, res) => {
+    try {
+        const room = await Room.findOne({ roomId: req.params.roomId });
+        if (!room) return res.status(404).json({ message: "Room not found" });
+
+        if (room.owner.toString() === req.params.userId) {
+            return res.status(400).json({ message: "Cannot remove the owner" });
+        }
+
+        room.collaborators = room.collaborators.filter(c => c.user.toString() !== req.params.userId);
+        await room.save();
+
+        const updatedRoom = await Room.findOne({ roomId: req.params.roomId }).populate('owner collaborators.user');
+        res.json(updatedRoom);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Update Room Password
+router.put('/:roomId/password', async (req, res) => {
+    try {
+        const { password, action } = req.body;
+        const room = await Room.findOne({ roomId: req.params.roomId });
+        if (!room) return res.status(404).json({ message: "Room not found" });
+
+        if (action === 'remove') {
+            room.password = null;
+        } else if (password) {
+            // Save as plaintext so the owner can view it
+            room.password = password;
+        } else {
+            return res.status(400).json({ message: "Password is required" });
+        }
+
+        await room.save();
+        res.json({ message: "Password updated successfully" });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }

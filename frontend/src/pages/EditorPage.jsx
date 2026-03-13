@@ -1,17 +1,18 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
 import axiosInstance from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext';
 import {
-    Code2, Users, Send, Share2,
+    Code2, Users, Send, Share2, Settings,
     ArrowLeft, ChevronRight, MessageSquare,
     Play, Shield, User as UserIcon, X, Copy, Check, Terminal, Loader2, Trash2, ChevronDown, ChevronUp,
-    File, Folder, FilePlus, FolderPlus, MoreVertical
+    File, Folder, FilePlus, FolderPlus, MoreVertical, Eye, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+import RoomSettingsModal from '../components/RoomSettingsModal';
 
 const EditorPage = () => {
     const { roomId } = useParams();
@@ -29,6 +30,7 @@ const EditorPage = () => {
     const [activeSidePanel, setActiveSidePanel] = useState('files'); // 'files', 'users', or null
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const [copiedId, setCopiedId] = useState(false);
     const [role, setRole] = useState('editor');
@@ -41,6 +43,8 @@ const EditorPage = () => {
     const [activeFileId, setActiveFileId] = useState(null);
     const activeFileIdRef = useRef(null);
     const [isSaved, setIsSaved] = useState(true);
+    const [manualPassword, setManualPassword] = useState("");
+    const [showJoinPassword, setShowJoinPassword] = useState(false);
 
     useEffect(() => {
         activeFileIdRef.current = activeFileId;
@@ -117,7 +121,7 @@ const EditorPage = () => {
         try {
             setIsLoading(true);
             const userId = user._id || user.id || user.uid;
-            await axiosInstance.post('/api/room/join', { roomId, userId });
+            await axiosInstance.post('/api/room/join', { roomId, userId, password: manualPassword || undefined });
 
             // Refresh details to get updated list
             const res = await axiosInstance.get(`/api/room/${roomId}`);
@@ -126,7 +130,8 @@ const EditorPage = () => {
             setRole('editor');
         } catch (err) {
             console.error("Error joining:", err);
-            alert("Failed to join room.");
+            const message = err.response?.data?.message || "Failed to join room.";
+            alert(message);
         } finally {
             setIsLoading(false);
         }
@@ -141,21 +146,12 @@ const EditorPage = () => {
 
         const fetchRoomDetails = async () => {
             try {
-                // Fetch room details first WITHOUT auto-joining
-                const res = await axiosInstance.get(`/api/room/${roomId}`);
-                setRoomDetails(res.data);
-                const roomFiles = res.data.files || [];
-                setFiles(roomFiles);
-
-                const currentActiveId = res.data.activeFileId || (roomFiles.length > 0 ? roomFiles[0].id : null);
-                setActiveFileId(currentActiveId);
-
-                const activeF = roomFiles.find(f => f.id === currentActiveId);
-                setLanguage(activeF?.language || "javascript");
-                lastSocketCodeRef.current = activeF?.content || ""; // Sync ref on load
-                setCode(activeF?.content || "");
-
                 const userId = user._id || user.id || user.uid;
+                // Fetch room details first WITHOUT auto-joining, pass userId to get owner specifics like plaintext password
+                const res = await axiosInstance.get(`/api/room/${roomId}?userId=${userId}`);
+                setRoomDetails(res.data);
+                
+                // If user is not logged in or not part of the room yet, we might want to auto-join if it's public
                 const isOwner = res.data.owner?._id === userId || res.data.owner === userId;
                 const isCollab = res.data.collaborators?.some(c => {
                     const cId = c.user?._id || c.user?.id || c.user;
@@ -171,7 +167,35 @@ const EditorPage = () => {
                     }
                 } else {
                     setIsMember(false);
+                    // If room doesn't have a password, attempt to join automatically
+                    if (!res.data.hasPassword) {
+                        try {
+                            setIsLoading(true);
+                            await axiosInstance.post('/api/room/join', { roomId, userId });
+                            
+                            // Re-fetch to get updated member details
+                            const joinRes = await axiosInstance.get(`/api/room/${roomId}?userId=${userId}`);
+                            setRoomDetails(joinRes.data);
+                            setIsMember(true);
+                            setRole('editor');
+                        } catch (joinErr) {
+                            console.error("Auto-join failed:", joinErr);
+                        }
+                    }
                 }
+
+                const roomFiles = res.data.files || [];
+                setFiles(roomFiles);
+
+                
+                const currentActiveId = res.data.activeFileId || (roomFiles.length > 0 ? roomFiles[0].id : null);
+                setActiveFileId(currentActiveId);
+
+                const activeF = roomFiles.find(f => f.id === currentActiveId);
+                setLanguage(activeF?.language || "javascript");
+                lastSocketCodeRef.current = activeF?.content || ""; // Sync ref on load
+                setCode(activeF?.content || "");
+
                 setIsNotFound(false);
             } catch (err) {
                 console.error("Error fetching room details:", err.response?.data || err.message);
@@ -556,6 +580,24 @@ const EditorPage = () => {
                 </p>
 
                 <div className="flex flex-col gap-3">
+                    {roomDetails?.hasPassword && (
+                        <div className="relative mb-2">
+                            <input
+                                type={showJoinPassword ? "text" : "password"}
+                                placeholder="Room Password required"
+                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 pr-11 text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none text-white placeholder:text-zinc-600"
+                                value={manualPassword}
+                                onChange={(e) => setManualPassword(e.target.value)}
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => setShowJoinPassword(!showJoinPassword)}
+                                className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                            >
+                                {showJoinPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                        </div>
+                    )}
                     <button
                         onClick={handleManualJoin}
                         className="w-full btn-primary py-3.5 justify-center text-base shadow-lg shadow-primary/20"
@@ -651,22 +693,37 @@ const EditorPage = () => {
                     }
 
                     {/* Copy ID - hidden on small screens */}
-                    <button
-                        onClick={handleCopyRoomId}
-                        className="hidden md:flex items-center gap-1.5 py-1 px-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-md text-xs font-medium transition-all flex-shrink-0"
-                    >
-                        {copiedId ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-                        <span className="hidden lg:inline">{copiedId ? 'Copied' : 'Copy ID'}</span>
-                    </button>
+                    {role === 'owner' && (
+                        <button
+                            onClick={handleCopyRoomId}
+                            className="hidden md:flex items-center gap-1.5 py-1 px-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-md text-xs font-medium transition-all flex-shrink-0"
+                        >
+                            {copiedId ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                            <span className="hidden lg:inline">{copiedId ? 'Copied' : 'Copy ID'}</span>
+                        </button>
+                    )}
 
-                    {/* Share */}
-                    <button
-                        onClick={() => setIsShareModalOpen(true)}
-                        className="flex items-center gap-1.5 py-1 px-2.5 bg-primary hover:bg-primary/90 text-white rounded-md text-xs font-medium transition-all flex-shrink-0"
-                    >
-                        <Share2 size={12} />
-                        <span className="hidden sm:inline">Share</span>
-                    </button>
+                    {/* Share Modal Trigger (Owner Only) */}
+                    {role === 'owner' && (
+                        <button
+                            onClick={() => setIsShareModalOpen(true)}
+                            className="flex items-center gap-1.5 py-1 px-2.5 bg-primary hover:bg-primary/90 text-white rounded-md text-xs font-medium transition-all flex-shrink-0"
+                        >
+                            <Share2 size={12} />
+                            <span className="hidden sm:inline">Share</span>
+                        </button>
+                    )}
+
+                    {/* Settings (Owner only) */}
+                    {role === 'owner' && (
+                        <button
+                            onClick={() => setIsSettingsModalOpen(true)}
+                            className="flex items-center gap-1.5 py-1 px-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-md text-xs font-medium transition-all flex-shrink-0"
+                        >
+                            <Settings size={12} />
+                            <span className="hidden sm:inline">Settings</span>
+                        </button>
+                    )}
 
                     {/* Run */}
                     <button
@@ -1035,6 +1092,16 @@ const EditorPage = () => {
                         </div>
                     )}
                 </AnimatePresence>
+
+                {/* Settings Modal */}
+                <RoomSettingsModal
+                    isOpen={isSettingsModalOpen}
+                    onClose={() => setIsSettingsModalOpen(false)}
+                    roomId={roomId}
+                    roomDetails={roomDetails}
+                    setRoomDetails={setRoomDetails}
+                    socketRef={socketRef}
+                />
             </div>
         </div>
     );

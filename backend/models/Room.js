@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const RoomSchema = new mongoose.Schema({
     roomId: { type: String, required: true, unique: true },
     name: { type: String, required: true },
+    password: { type: String, default: null },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     collaborators: [{
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
