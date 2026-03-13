@@ -4,6 +4,7 @@ const Room = require('../models/Room');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 
 
 // Create Room
@@ -78,19 +79,38 @@ router.post('/join', async (req, res) => {
     }
 });
 
-// Get User's Rooms (must be before /:roomId to avoid route conflict)
+// Get User's Rooms
 router.get('/user/:userId', async (req, res) => {
     try {
-        const rooms = await Room.find({
-            $or: [
-                { owner: req.params.userId },
-                { 'collaborators.user': req.params.userId }
-            ]
-        })
+        const userId = req.params.userId;
+        let query;
+
+        if (mongoose.Types.ObjectId.isValid(userId)) {
+            query = {
+                $or: [
+                    { owner: userId },
+                    { 'collaborators.user': userId }
+                ]
+            };
+        } else {
+            // If it's a Firebase UID, we first need to find the user in our DB
+            const user = await User.findOne({ uid: userId });
+            if (!user) return res.json([]); // No user, no rooms
+            
+            query = {
+                $or: [
+                    { owner: user._id },
+                    { 'collaborators.user': user._id }
+                ]
+            };
+        }
+
+        const rooms = await Room.find(query)
             .populate('owner collaborators.user')
             .sort({ updatedAt: -1, createdAt: -1 });
         res.json(rooms);
     } catch (err) {
+        console.error("Error fetching user rooms:", err);
         res.status(500).json({ message: err.message });
     }
 });
@@ -193,7 +213,8 @@ router.put('/:roomId/collab-role', async (req, res) => {
         if (collabIndex !== -1) {
             room.collaborators[collabIndex].role = role;
             await room.save();
-            return res.json({ message: "Role updated successfully", room });
+            const updatedRoom = await Room.findOne({ roomId: req.params.roomId }).populate('owner collaborators.user');
+            return res.json({ message: "Role updated successfully", room: updatedRoom });
         }
         res.status(404).json({ message: "Collaborator not found" });
     } catch (err) {

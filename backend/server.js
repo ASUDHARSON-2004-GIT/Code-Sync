@@ -115,6 +115,12 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('role-changed', { userId, role });
     });
 
+    socket.on('collaborator-removed', ({ roomId, userId }) => {
+        // Broadcast to the whole room so the targeted user is forced to leave
+        // and other users update their local team states
+        io.to(roomId).emit('user-removed', { userId });
+    });
+
     socket.on('file-create', ({ roomId, file }) => {
         if (rooms.has(roomId)) {
             const roomData = rooms.get(roomId);

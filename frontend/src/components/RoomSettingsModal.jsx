@@ -53,11 +53,29 @@ const RoomSettingsModal = ({ isOpen, onClose, roomId, roomDetails, setRoomDetail
             const res = await axiosInstance.delete(`/api/room/${roomId}/collaborators/${userId}`);
             setRoomDetails(res.data);
             toast.success("Collaborator removed");
-            
             // Notify via socket to kick them out
-            // We can emit a general event or handle it gracefully
+            if (socketRef.current) {
+                socketRef.current.emit('collaborator-removed', { roomId, userId });
+            }
         } catch (err) {
             toast.error(err.response?.data?.message || "Failed to remove collaborator");
+        }
+    };
+
+    const handleRoleChange = async (userId, newRole) => {
+        try {
+            const res = await axiosInstance.put(`/api/room/${roomId}/collab-role`, {
+                userId,
+                role: newRole,
+            });
+            setRoomDetails(res.data.room);
+            toast.success(`Role updated to ${newRole}`);
+            
+            if (socketRef.current) {
+                socketRef.current.emit('role-update', { roomId, userId, role: newRole });
+            }
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Failed to update role");
         }
     };
 
@@ -211,7 +229,14 @@ const RoomSettingsModal = ({ isOpen, onClose, roomId, roomDetails, setRoomDetail
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-3">
-                                                <span className="text-[10px] uppercase font-bold text-zinc-500 bg-zinc-800 px-2 py-1 rounded">{collab.role}</span>
+                                                <select 
+                                                    value={collab.role}
+                                                    onChange={(e) => handleRoleChange(collab.user._id, e.target.value)}
+                                                    className="text-[10px] uppercase font-bold text-zinc-400 bg-zinc-800 outline-none border border-zinc-700 py-1 px-1.5 rounded cursor-pointer appearance-none text-center hover:bg-zinc-700 hover:text-white transition-colors"
+                                                >
+                                                    <option value="editor">EDITOR</option>
+                                                    <option value="viewer">VIEWER</option>
+                                                </select>
                                                 <button 
                                                     onClick={() => handleRemoveCollaborator(collab.user._id)}
                                                     className="p-1.5 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 rounded transition-colors opacity-0 group-hover:opacity-100"

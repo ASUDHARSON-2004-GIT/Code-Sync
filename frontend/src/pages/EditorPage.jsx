@@ -288,6 +288,29 @@ const EditorPage = () => {
             });
         });
 
+        socketRef.current.on('user-removed', ({ userId }) => {
+            const currentUserId = user.id || user._id || user.uid;
+            
+            if (currentUserId === userId) {
+                // The current user was removed! Kick them out immediately.
+                toast.error("You have been removed from this room by the owner.");
+                setIsMember(false);
+                setRole('viewer');
+            } else {
+                // Another user was removed. Refresh the local collaborator list UI.
+                setRoomDetails(prev => {
+                    if (!prev || !prev.collaborators) return prev;
+                    return {
+                        ...prev,
+                        collaborators: prev.collaborators.filter(c => {
+                            const cUser = c.user?._id || c.user?.id || c.user;
+                            return cUser !== userId;
+                        })
+                    };
+                });
+            }
+        });
+
         socketRef.current.on('cursor-update', ({ id, cursor, user: remoteUser }) => {
             if (!editorRef.current) return;
 

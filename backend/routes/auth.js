@@ -43,6 +43,9 @@ router.post('/login', async (req, res) => {
 router.post('/firebase-sync', async (req, res) => {
     try {
         const { email, name, photoURL, uid } = req.body;
+        if (!email) {
+            return res.status(400).json({ message: "Email is required for sync" });
+        }
         console.log("Syncing Firebase User:", email);
         let user = await User.findOne({ email });
         if (!user) {
@@ -64,8 +67,8 @@ router.post('/firebase-sync', async (req, res) => {
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
         res.json({ token, user: { id: user._id, email: user.email, name: user.name, photoURL: user.photoURL } });
     } catch (err) {
-        console.error("Firebase Sync Error:", err);
-        res.status(500).json({ message: err.message });
+        console.error("Firebase Sync Error Detail:", err);
+        res.status(500).json({ message: err.message, stack: err.stack });
     }
 });
 

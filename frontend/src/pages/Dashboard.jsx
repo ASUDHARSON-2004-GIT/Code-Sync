@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     Plus, Search, Folder, Clock, MoreVertical, LogOut, Code2,
     LayoutDashboard, Settings, User, Users, Zap, Trash2, X, ChevronRight, Hash, Loader2,
-    ArrowUpDown, Mail, Shield, Calendar, ExternalLink, Activity, LogIn
+    ArrowUpDown, Mail, Shield, Calendar, ExternalLink, Activity, LogIn, Eye, EyeOff
 } from 'lucide-react';
 import axiosInstance from '../api/axiosInstance';
 import { useNavigate } from 'react-router-dom';
@@ -608,7 +608,10 @@ const RoomCardLarge = ({ room, formatDate, onClick }) => (
     </div>
 );
 
-const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoomName, newRoomPassword, setNewRoomPassword }) => (
+const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoomName, newRoomPassword, setNewRoomPassword }) => {
+    const [showPassword, setShowPassword] = useState(false);
+    
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
         <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 16 }}
@@ -646,13 +649,22 @@ const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoo
                 </div>
                 <div className="space-y-1.5">
                     <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Password (Optional)</label>
-                    <input
-                        type="password"
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all text-white placeholder:text-zinc-700"
-                        placeholder="Leave blank for public room"
-                        value={newRoomPassword}
-                        onChange={(e) => setNewRoomPassword(e.target.value)}
-                    />
+                    <div className="relative">
+                        <input
+                            type={showPassword ? "text" : "password"}
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all text-white placeholder:text-zinc-700 pr-10"
+                            placeholder="Leave blank for public room"
+                            value={newRoomPassword}
+                            onChange={(e) => setNewRoomPassword(e.target.value)}
+                        />
+                        <button 
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                        >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                    </div>
                 </div>
                 <div className="flex gap-2.5 pt-1">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 text-zinc-500 hover:text-white text-xs font-medium transition-all rounded-xl hover:bg-zinc-800">
@@ -668,9 +680,12 @@ const CreateRoomModal = ({ isCreating, onCreate, onClose, newRoomName, setNewRoo
             </form>
         </motion.div>
     </div>
-);
+    );
+};
 
-const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId, joinRoomPassword, setJoinRoomPassword }) => (
+const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId, joinRoomPassword, setJoinRoomPassword }) => {
+    const [showPassword, setShowPassword] = useState(false);
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
         <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 16 }}
@@ -711,13 +726,22 @@ const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId, 
                 </div>
                 <div className="space-y-1.5">
                     <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Password (If Protected)</label>
-                    <input
-                        type="password"
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:border-zinc-600 focus:ring-2 focus:ring-white/5 outline-none transition-all text-white placeholder:text-zinc-700"
-                        placeholder="Leave blank if public"
-                        value={joinRoomPassword}
-                        onChange={(e) => setJoinRoomPassword(e.target.value)}
-                    />
+                    <div className="relative">
+                        <input
+                            type={showPassword ? "text" : "password"}
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 pr-10 text-sm focus:border-zinc-600 focus:ring-2 focus:ring-white/5 outline-none transition-all text-white placeholder:text-zinc-700"
+                            placeholder="Leave blank if public"
+                            value={joinRoomPassword}
+                            onChange={(e) => setJoinRoomPassword(e.target.value)}
+                        />
+                        <button 
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                        >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                    </div>
                 </div>
                 <div className="flex gap-2.5 pt-1">
                     <button type="button" onClick={onClose} className="flex-1 py-2.5 text-zinc-500 hover:text-white text-xs font-medium transition-all rounded-xl hover:bg-zinc-800">
@@ -733,6 +757,7 @@ const JoinRoomModal = ({ isJoining, onJoin, onClose, joinRoomId, setJoinRoomId, 
             </form>
         </motion.div>
     </div>
-);
+    );
+};
 
 export default Dashboard;
